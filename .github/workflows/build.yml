@@ -85,10 +85,20 @@ jobs:
           java-version: '17'
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v2
+        uses: android-actions/setup-android@v3
 
+      - run: sdkmanager tools platform-tools
+
+      - uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r25e
+          add-to-path: true
+          local-cache: true
           
       - name: Build
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           for TARGET in $(echo ${{ matrix.targets }} | tr "," "\n")
           do
