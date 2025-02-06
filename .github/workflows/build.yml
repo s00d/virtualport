@@ -68,10 +68,17 @@ jobs:
           sudo apt-get install -y gcc-multilib g++-multilib pkg-config libssl-dev libasound2-dev libudev-dev:i386 libudev-dev:amd64
           sudo apt-get install -y libc6:i386 libgcc1:i386 libstdc++6:i386
           sudo apt-get install -y libc6:amd64 libgcc1:amd64 libstdc++6:amd64
+          # Добавляем кросс-компиляцию для aarch64
+          sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross
+          # Создаем конфигурацию для Cargo
+          mkdir -p .cargo
+          echo '[target.aarch64-unknown-linux-gnu]' >> .cargo/config.toml
+          echo 'linker = "aarch64-linux-gnu-gcc"' >> .cargo/config.toml
 
       - uses: nttld/setup-ndk@v1
         id: setup-ndk
         with:
+          local-cache: true
           ndk-version: r21e
           add-to-path: true
 
@@ -79,7 +86,11 @@ jobs:
         run: |
           for TARGET in $(echo ${{ matrix.targets }} | tr "," "\n")
           do
-            rustup target add $TARGET
+            rustup target add $TARGET || true
+            if ! rustup target list | grep -q "$TARGET (installed)"; then
+              echo "Error: Target $TARGET not installed"
+              exit 1
+            fi
             cargo build --release --bin virtualport --target $TARGET
             mv target/$TARGET/release/virtualport target/$TARGET/release/virtualport-$TARGET
           done
