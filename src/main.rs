@@ -1,20 +1,22 @@
 use std::collections::HashMap;
+use std::ffi::CStr;
 use clap::Parser;
 use ctrlc;
-use nix::fcntl::{fcntl, FcntlArg, OFlag, F_GETFL, F_SETFL};
+use nix::fcntl::{fcntl, OFlag, F_GETFL, F_SETFL};
 use nix::pty::{openpty, OpenptyResult};
 use nix::sys::termios::{cfsetispeed, cfsetospeed, tcgetattr, tcsetattr, BaudRate, ControlFlags, LocalFlags, SetArg};
 use std::fs::{remove_file, OpenOptions, File};
 use std::io::{self, BufRead, Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
 use std::os::unix::fs::symlink;
-use std::path::{Path, PathBuf};
+use std::path::{Path};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
 use std::thread;
 use std::time::Duration;
+use libc::{ttyname};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -417,10 +419,13 @@ fn main() -> io::Result<()> {
 }
 
 fn get_slave_name(fd: i32) -> String {
-    let mut path_buf = PathBuf::new();
-    let res = fcntl(fd, FcntlArg::F_GETPATH(&mut path_buf));
-    match res {
-        Ok(_) => path_buf.to_string_lossy().to_string(),
-        Err(_) => "unknown".to_string(),
+    let ret = unsafe { ttyname(fd) };
+
+    if ret.is_null() {
+        "unknown".to_string()
+    } else {
+        // Преобразуем C-строку в строку Rust
+        let path = unsafe { CStr::from_ptr(ret).to_string_lossy() };
+        path.to_string()
     }
 }
