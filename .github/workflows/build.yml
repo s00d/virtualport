@@ -1,0 +1,139 @@
+name: Build and Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Read version
+        id: version
+        run: echo "version=$(grep '^version' ./Cargo.toml | sed 's/version = //g' | tr -d '\"')" >> $GITHUB_ENV
+
+      - name: Check if release exists
+        id: check_release
+        run: |
+          RESPONSE_CODE=$(curl --write-out "%{http_code}" --silent --output /dev/null "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/v${{ env.version }}")
+          if [ "$RESPONSE_CODE" -eq 200 ]; then
+            echo "exists=true" >> $GITHUB_ENV
+            echo "Release v${{ env.version }} already exists. Exiting."
+            exit 1
+          else
+            echo "exists=false" >> $GITHUB_ENV
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build:
+    name: Build
+    needs: check
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        rust:
+          - stable
+        include:
+          - os: ubuntu-latest
+            targets: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            targets: x86_64-pc-windows-msvc,aarch64-pc-windows-msvc,i686-pc-windows-msvc
+          - os: macos-latest
+            targets: x86_64-apple-darwin,aarch64-apple-darwin
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.rust }}
+          targets: ${{ matrix.targets }}
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Set up Perl
+        if: runner.os == 'Windows'
+        uses: shogo82148/actions-setup-perl@v1
+        with:
+          perl-version: '5.34'
+
+      - name: Install Perl modules
+        if: runner.os == 'Windows'
+        run: |
+          cpanm Locale::Maketext::Simple
+
+      - name: Install multilib dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib g++-multilib pkg-config libssl-dev libasound2-dev libasound2-dev:i386 libudev-dev:i386
+        shell: bash
+
+      - name: Build windows
+        if: runner.os == 'Windows'
+        run: |
+          $targets = "${{ matrix.targets }}".split(',')
+          foreach ($target in $targets) {
+            rustup target add $target
+            cargo build --release --bin gar --target $target
+            mv "target/$target/release/gar.exe" "target/$target/release/gar-$target.exe"
+          }
+
+      - name: Build other
+        if: runner.os != 'Windows'
+        run: |
+          for TARGET in $(echo ${{ matrix.targets }} | tr "," "\n")
+          do
+            rustup target add $TARGET
+            cargo build --release --bin gar --target $TARGET
+            mv target/$TARGET/release/gar target/$TARGET/release/gar-$TARGET
+          done
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: gar-${{ matrix.os }}
+          path: target/*/*/gar-*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
+
+      - name: Read version
+        id: version
+        run: echo "version=$(grep '^version' ./Cargo.toml | sed 's/version = //g' | tr -d '\"')" >> $GITHUB_ENV
+
+      - name: Read
+        id: read
+        run: | 
+          ls -a
+
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ env.version }}
+          name: Release v${{ env.version }}
+          draft: false
+          prerelease: false
+          files: |
+            gar-*/*/release/gar-*
+            LICENSE
+            VERSION

@@ -1,0 +1,9 @@
+[package]
+name = "virtualport"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.2", features = ["derive"] }
+ctrlc = "3.2"
+nix = { version = "0.29", features = ["term", "fs"] }
