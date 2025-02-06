@@ -42,7 +42,7 @@ jobs:
           - stable
         include:
           - os: ubuntu-latest
-            targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu,i686-unknown-linux-gnu,armv7-unknown-linux-gnueabi,x86_64-linux-android,aarch64-linux-android,armv7-linux-androideabi,i686-linux-android
+            targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu,i686-unknown-linux-gnu,armv7-unknown-linux-gnueabi
           - os: macos-latest
             targets: x86_64-apple-darwin,aarch64-apple-darwin
 
@@ -74,31 +74,7 @@ jobs:
           sudo apt-get install -y gcc-arm-linux-gnueabi g++-arm-linux-gnueabi
           sudo apt-get install -y libc6-dev-armhf-cross
 
-
-      - name: Install cargo-ndk
-        run: cargo install cargo-ndk
-
-      - name: Setup Java
-        uses: actions/setup-java@v3
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - run: sdkmanager tools platform-tools
-
-      - uses: nttld/setup-ndk@v1
-        id: setup-ndk
-        with:
-          ndk-version: r25e
-          add-to-path: true
-          local-cache: true
-          
       - name: Build
-        env:
-          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           for TARGET in $(echo ${{ matrix.targets }} | tr "," "\n")
           do
@@ -107,15 +83,8 @@ jobs:
               echo "Error: Target $TARGET not installed"
               exit 1
             fi
-            if [[ "$TARGET" == *"android"* ]]; then
-              # Build for Android targets
-              cargo ndk --target $TARGET build --release --bin virtualport
-              mv target/$TARGET/release/virtualport target/$TARGET/release/virtualport-$TARGET
-            else
-              # Build for non-Android targets
-              cargo build --release --bin virtualport --target $TARGET
-              mv target/$TARGET/release/virtualport target/$TARGET/release/virtualport-$TARGET
-            fi
+            cargo build --release --bin virtualport --target $TARGET
+            mv target/$TARGET/release/virtualport target/$TARGET/release/virtualport-$TARGET
           done
 
       - name: Upload artifact
