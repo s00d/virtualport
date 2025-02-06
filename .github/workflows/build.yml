@@ -70,15 +70,10 @@ jobs:
           sudo apt-get install -y libc6:amd64 libgcc1:amd64 libstdc++6:amd64
           # Добавляем кросс-компиляцию для aarch64
           sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross
-          # Создаем конфигурацию для Cargo
-          mkdir -p .cargo
-          echo '[target.aarch64-unknown-linux-gnu]' >> .cargo/config.toml
-          echo 'linker = "aarch64-linux-gnu-gcc"' >> .cargo/config.toml
 
       - uses: nttld/setup-ndk@v1
         id: setup-ndk
         with:
-          local-cache: true
           ndk-version: r21e
           add-to-path: true
 
