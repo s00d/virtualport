@@ -108,7 +108,7 @@ graph LR
     F[Heartbeat Thread] -->|periodic writes| C
     C <-->|PTY Pair| G[Slave PTY]
     G -->|symlink| H["/tmp/my_virtual_port"]
-    H -->|read/write| I[External Tools (e.g., `cat`, `echo`)]
+    H -->|read/write| I[External Tools e.g., `cat`, `echo`]
     I -->|writes data| H
     G -->|read by| J[Slave Reader Thread]
     J -->|writes back to| C
