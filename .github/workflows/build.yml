@@ -59,37 +59,20 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Set up Perl
-        if: runner.os == 'Windows'
-        uses: shogo82148/actions-setup-perl@v1
-        with:
-          perl-version: '5.34'
-
-      - name: Install Perl modules
-        if: runner.os == 'Windows'
-        run: |
-          cpanm Locale::Maketext::Simple
-
-      - name: Install multilib dependencies
+      - name: Install dependencies for Linux targets
         if: runner.os == 'Linux'
         run: |
-          sudo dpkg --add-architecture i386
           sudo apt-get update
-          sudo apt-get install -y gcc-multilib g++-multilib pkg-config libssl-dev libasound2-dev libasound2-dev:i386 libudev-dev:i386
-        shell: bash
+          sudo apt-get install -y gcc-multilib g++-multilib pkg-config libssl-dev libasound2-dev libudev-dev:i386
 
-      - name: Build windows
-        if: runner.os == 'Windows'
+      - name: Install Android NDK for Android targets
+        if: runner.os == 'Linux' && contains(matrix.targets, 'android')
         run: |
-          $targets = "${{ matrix.targets }}".split(',')
-          foreach ($target in $targets) {
-            rustup target add $target
-            cargo build --release --bin virtualport --target $target
-            mv "target/$target/release/virtualport.exe" "target/$target/release/virtualport-$target.exe"
-          }
+          curl -sL https://github.com/android-ndk/ndk/releases/download/r21e/android-ndk-r21e-linux-x86_64.zip -o android-ndk.zip
+          unzip android-ndk.zip -d $HOME/
+          echo "$HOME/android-ndk-r21e" >> $GITHUB_ENV
 
-      - name: Build other
-        if: runner.os != 'Windows'
+      - name: Build
         run: |
           for TARGET in $(echo ${{ matrix.targets }} | tr "," "\n")
           do
@@ -117,11 +100,6 @@ jobs:
       - name: Read version
         id: version
         run: echo "version=$(grep '^version' ./Cargo.toml | sed 's/version = //g' | tr -d '\"')" >> $GITHUB_ENV
-
-      - name: Read
-        id: read
-        run: | 
-          ls -a
 
       - name: Create Release
         id: create_release
