@@ -89,8 +89,6 @@ jobs:
 
           
       - name: Build
-        env:
-          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           for TARGET in $(echo ${{ matrix.targets }} | tr "," "\n")
           do
