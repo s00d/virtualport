@@ -86,8 +86,8 @@ jobs:
           $targets = "${{ matrix.targets }}".split(',')
           foreach ($target in $targets) {
             rustup target add $target
-            cargo build --release --bin gar --target $target
-            mv "target/$target/release/gar.exe" "target/$target/release/gar-$target.exe"
+            cargo build --release --bin virtualport --target $target
+            mv "target/$target/release/virtualport.exe" "target/$target/release/virtualport-$target.exe"
           }
 
       - name: Build other
@@ -96,15 +96,15 @@ jobs:
           for TARGET in $(echo ${{ matrix.targets }} | tr "," "\n")
           do
             rustup target add $TARGET
-            cargo build --release --bin gar --target $TARGET
-            mv target/$TARGET/release/gar target/$TARGET/release/gar-$TARGET
+            cargo build --release --bin virtualport --target $TARGET
+            mv target/$TARGET/release/virtualport target/$TARGET/release/virtualport-$TARGET
           done
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gar-${{ matrix.os }}
-          path: target/*/*/gar-*
+          name: virtualport-${{ matrix.os }}
+          path: target/*/*/virtualport-*
 
   release:
     needs: build
@@ -134,6 +134,6 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            gar-*/*/release/gar-*
+            virtualport-*/*/release/virtualport-*
             LICENSE
             VERSION
