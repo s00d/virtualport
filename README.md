@@ -104,7 +104,7 @@ graph LR
     A[User Input/Console] -->|stdin| B[Stdin Writer Thread]
     B -->|writes to| C[Master PTY]
     C -->|read by| D[Master Reader Thread]
-    D -->|logs/output| E[[Console: [Received] ...]]
+    D -->|logs/output| E[Console: Received ...]
     F[Heartbeat Thread] -->|periodic writes| C
     C <-->|PTY Pair| G[Slave PTY]
     G -->|symlink| H[/tmp/my_virtual_port]
