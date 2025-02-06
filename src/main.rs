@@ -9,14 +9,14 @@ use std::fs::{remove_file, OpenOptions, File};
 use std::io::{self, BufRead, Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
 use std::os::unix::fs::symlink;
-use std::path::{Path};
+use std::path::Path;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
 use std::thread;
 use std::time::Duration;
-use libc::{ttyname};
+use libc::ttyname;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -63,9 +63,6 @@ struct Args {
     parity: String,
 }
 
-
-
-
 /// Структура для автоматической очистки созданного ресурса (символической ссылки).
 struct Cleanup {
     link_path: String,
@@ -84,6 +81,7 @@ impl Drop for Cleanup {
     }
 }
 
+/// Загружает команды из файла, где каждая команда и её ответ задаются в соседних строках.
 fn load_commands_from_file(filename: &str) -> HashMap<String, String> {
     let mut commands = HashMap::new();
     let path = Path::new(filename);
@@ -106,13 +104,68 @@ fn load_commands_from_file(filename: &str) -> HashMap<String, String> {
     commands
 }
 
-fn create_virtual_serial_port(retries: usize) -> OpenptyResult {
+/// --- Реализация создания виртуального порта --- ///
+
+#[cfg(not(target_os = "android"))]
+fn create_virtual_serial_port(retries: usize) -> nix::pty::OpenptyResult {
+    // Для платформ, отличных от Android, используем стандартную реализацию.
     for attempt in 0..retries {
-        match openpty(None, None) {
-            Ok(pty) => return pty, // Успех — возвращаем PTY
+        match nix::pty::openpty(None, None) {
+            Ok(pty) => return pty,
             Err(e) => {
                 eprintln!("[Error] Failed to create PTY (attempt {}/{}): {}", attempt + 1, retries, e);
-                thread::sleep(Duration::from_millis(500)); // Подождать и попробовать снова
+                thread::sleep(Duration::from_millis(500));
+            }
+        }
+    }
+    panic!("[Error] Unable to create a virtual serial port after {} attempts", retries);
+}
+
+#[cfg(target_os = "android")]
+mod android_pty {
+    use nix::pty::{OpenptyResult, posix_openpt, PtyMaster, grantpt, unlockpt, ptsname};
+    use nix::fcntl::OFlag;
+    use nix::sys::stat::Mode;
+    use std::fs::File;
+    use std::os::unix::io::FromRawFd;
+    use std::path::Path;
+    use std::os::fd::AsRawFd;
+
+    pub fn openpty_android() -> nix::Result<OpenptyResult> {
+        // Открываем мастер-устройство PTY с нужными флагами.
+        let master_fd: PtyMaster = posix_openpt(OFlag::O_RDWR | OFlag::O_NOCTTY)?;
+        // Вызываем grantpt/unlockpt с заимствованием мастера.
+        grantpt(&master_fd)?;
+        unlockpt(&master_fd)?;
+        // Получаем имя slave-устройства.
+        let slave_name = unsafe { ptsname(&master_fd)? };
+
+        // Если ptsname возвращает Cow<str>, можно явно указать тип:
+        let slave_name_str: &str = slave_name.as_ref();
+        // Если требуется использовать Path:
+        let slave_path = Path::new(slave_name_str);
+        let slave_fd = nix::fcntl::open(
+            slave_path,
+            OFlag::O_RDWR | OFlag::O_NOCTTY,
+            Mode::empty()
+        )?;
+        Ok(OpenptyResult {
+            master: unsafe { File::from_raw_fd(master_fd.as_raw_fd()).into() },
+            slave: unsafe { File::from_raw_fd(slave_fd).into() },
+        })
+    }
+}
+
+
+#[cfg(target_os = "android")]
+fn create_virtual_serial_port(retries: usize) -> nix::pty::OpenptyResult {
+    // Для Android используем собственную реализацию.
+    for attempt in 0..retries {
+        match android_pty::openpty_android() {
+            Ok(pty) => return pty,
+            Err(e) => {
+                eprintln!("[Error] Failed to create PTY on Android (attempt {}/{}): {}", attempt + 1, retries, e);
+                thread::sleep(Duration::from_millis(500));
             }
         }
     }
@@ -154,12 +207,14 @@ fn log_message(logger: &Option<Arc<Mutex<File>>>, msg: &str) {
     }
 }
 
+/// Устанавливает неблокирующий режим для файлового дескриптора.
 fn set_nonblocking(fd: i32) {
     let flags = fcntl(fd, F_GETFL).expect("fcntl F_GETFL failed");
     fcntl(fd, F_SETFL(OFlag::from_bits_truncate(flags) | OFlag::O_NONBLOCK))
         .expect("fcntl F_SETFL O_NONBLOCK failed");
 }
 
+/// Преобразует числовую скорость в BaudRate.
 fn speed_to_baud(speed: u32) -> Option<BaudRate> {
     use BaudRate::*;
     Some(match speed {
@@ -192,13 +247,13 @@ fn main() -> io::Result<()> {
         println!("[Info] Starting virtual port with arguments: {:?}", args);
     }
 
-    let commands = load_commands_from_file( "commands.txt");
+    let commands = load_commands_from_file("commands.txt");
 
     if !commands.is_empty() {
-        println!("[Info] Loaded {}'.", commands.len());
+        println!("[Info] Loaded {} command(s).", commands.len());
     }
 
-
+    // Автоматически удаляем символическую ссылку при завершении программы.
     let _cleanup = Cleanup::new(args.link.clone());
 
     let running = Arc::new(AtomicBool::new(true));
@@ -211,14 +266,14 @@ fn main() -> io::Result<()> {
             .expect("Error setting Ctrl-C handler");
     }
 
+    // Создаём виртуальный последовательный порт.
     let OpenptyResult { master, slave } = create_virtual_serial_port(5);
 
-    // Устанавливаем неблокирующий режим для master и stdin
+    // Устанавливаем неблокирующий режим для master и stdin.
     set_nonblocking(master.as_raw_fd());
     set_nonblocking(0); // stdin
 
-    // Обработка скорости передачи данных
-
+    // Получаем имя slave-устройства.
     let slave_name = get_slave_name(slave.as_raw_fd());
     println!("[Info] Virtual serial port created: {}", slave_name);
 
@@ -322,25 +377,23 @@ fn main() -> io::Result<()> {
                 }
                 Ok(n) => {
                     let text = String::from_utf8_lossy(&buf[..n]);
-                    received_data.push_str(&text); // Добавляем новые данные в буфер
+                    received_data.push_str(&text);
                     print!("[Received] {}", text);
                     io::stdout().flush().unwrap();
                     log_message(&logger_reader, &format!("[Received] {}", text.trim_end()));
 
-                    // Проверяем, есть ли в буфере полная команда (до `\n`)
+                    // Проверяем, есть ли в буфере полная команда (до '\n')
                     while let Some(pos) = received_data.find('\n') {
                         let command = received_data.drain(..=pos).collect::<String>().trim().to_string();
-
                         if let Some(response) = commands_reader.get(&command) {
                             println!("[Command] Recognized: '{}', responding with '{}'", command, response);
                             master_reader
                                 .as_ref()
-                                .write_all(&format!("{}\n", response).as_bytes())
+                                .write_all(format!("{}\n", response).as_bytes())
                                 .expect("[Error] Failed to write response");
                             log_message(&logger_reader, &format!("[Response] {}", response.trim_end()));
                         }
                     }
-
                     master_reader
                         .as_ref()
                         .flush()
@@ -362,7 +415,7 @@ fn main() -> io::Result<()> {
     let master_writer = Arc::clone(&master_file);
     let running_writer = Arc::clone(&running);
     let logger_writer = logger.clone();
-    let commands_writer = commands.clone(); // Копируем команды
+    let commands_writer = commands.clone();
     let writer_handle = thread::spawn(move || {
         let stdin = io::stdin();
         let mut stdin = stdin.lock();
@@ -383,16 +436,15 @@ fn main() -> io::Result<()> {
 
                         let response = if let Some(resp) = commands_writer.get(&trimmed) {
                             println!("[Command] Recognized: '{}', responding with '{}'", trimmed, resp);
-                            resp.clone() + "\n" // Ответ из commands
+                            resp.clone() + "\n"
                         } else {
-                            line // Если команды нет — отправляем введенное
+                            line
                         };
 
                         if let Err(e) = master_writer.as_ref().write_all(response.as_bytes()) {
                             eprintln!("[Writer] Error writing to master: {}", e);
                             break;
                         }
-
                         log_message(&logger_writer, &format!("[Sent] {}", response.trim_end()));
                     }
                 }
@@ -409,8 +461,6 @@ fn main() -> io::Result<()> {
         println!("[Writer] Thread exiting.");
     });
 
-
-
     let _ = reader_handle.join();
     let _ = writer_handle.join();
 
@@ -418,13 +468,13 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
+/// Возвращает имя slave-устройства для заданного файлового дескриптора.
 fn get_slave_name(fd: i32) -> String {
     let ret = unsafe { ttyname(fd) };
 
     if ret.is_null() {
         "unknown".to_string()
     } else {
-        // Преобразуем C-строку в строку Rust
         let path = unsafe { CStr::from_ptr(ret).to_string_lossy() };
         path.to_string()
     }
