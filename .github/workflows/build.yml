@@ -74,7 +74,7 @@ jobs:
         run: |
           curl -sL https://dl.google.com/android/repository/android-ndk-r26c-linux.zip -o android-ndk.zip
           unzip android-ndk.zip -d $HOME/
-          echo "$HOME/android-ndk-r21e" >> $GITHUB_ENV
+          echo "$HOME/android-ndk-r26e" >> $GITHUB_ENV
 
       - name: Build
         run: |
