@@ -42,7 +42,7 @@ jobs:
           - stable
         include:
           - os: ubuntu-latest
-            targets: x86_64-unknown-linux-gnu
+            targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu,i686-unknown-linux-gnu,armv7-unknown-linux-gnueabihf,armv6-unknown-linux-gnueabihf
           - os: macos-latest
             targets: x86_64-apple-darwin,aarch64-apple-darwin
 
