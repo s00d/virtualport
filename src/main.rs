@@ -3,7 +3,7 @@ use std::ffi::CStr;
 use clap::Parser;
 use ctrlc;
 use nix::fcntl::{fcntl, OFlag, F_GETFL, F_SETFL};
-use nix::pty::{openpty, OpenptyResult};
+use nix::pty::{OpenptyResult};
 use nix::sys::termios::{cfsetispeed, cfsetospeed, tcgetattr, tcsetattr, BaudRate, ControlFlags, LocalFlags, SetArg};
 use std::fs::{remove_file, OpenOptions, File};
 use std::io::{self, BufRead, Read, Write};
