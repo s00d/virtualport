@@ -1,13 +1,14 @@
+use std::collections::HashMap;
 use clap::Parser;
 use ctrlc;
 use nix::fcntl::{fcntl, FcntlArg, OFlag, F_GETFL, F_SETFL};
 use nix::pty::{openpty, OpenptyResult};
 use nix::sys::termios::{cfsetispeed, cfsetospeed, tcgetattr, tcsetattr, BaudRate, ControlFlags, LocalFlags, SetArg};
 use std::fs::{remove_file, OpenOptions, File};
-use std::io::{self, Read, Write};
+use std::io::{self, BufRead, Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
 use std::os::unix::fs::symlink;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
@@ -15,38 +16,53 @@ use std::sync::{
 use std::thread;
 use std::time::Duration;
 
-/// Программа для создания виртуального последовательного порта (PTY) с расширенным функционалом.
 #[derive(Parser, Debug)]
-#[command(author, version, about)]
+#[command(
+    author = "s00d <Virus191288@gmail.com>",
+    version = env!("CARGO_PKG_VERSION"),
+    about = "A program to create a virtual serial port (PTY) with extended functionality.",
+    long_about = "This program creates a virtual serial port using pseudoterminal (PTY) with configurable baud rate, parity, and logging options. It also supports sending heartbeat messages and managing serial communication through the command-line interface."
+)]
 struct Args {
-    /// Путь для символической ссылки на виртуальный порт (например, /dev/ttys019 или /tmp/my_virtual_port)
-    #[arg(short, long, default_value = "/tmp/my_virtual_port")]
+    /// Path for the symbolic link to the virtual port
+    #[arg(short = 'l', long, default_value = "/tmp/my_virtual_port", help = "Specify the symbolic link path for the virtual serial port.")]
     link: String,
 
-    /// Включить подробное логирование в stdout
-    #[arg(short, long, default_value_t = false)]
+    /// Enable verbose logging to stdout
+    #[arg(short = 'v', long, default_value_t = false, help = "Enable verbose logging for additional information in the terminal.")]
     verbose: bool,
 
-    /// Не отключать эхо (по умолчанию эхо отключается)
-    #[arg(long, default_value_t = false)]
+    /// Do not disable echo (echo is disabled by default)
+    #[arg(short = 'e', long, default_value_t = false, help = "If enabled, the echo feature will remain active on the slave device.")]
     enable_echo: bool,
 
-    /// Начальное сообщение, которое будет отправлено в виртуальный порт после старта
-    #[arg(short, long)]
+    /// Initial message that will be sent to the virtual port upon startup
+    #[arg(short = 'i', long, help = "Provide an initial message to be sent to the virtual port after startup.")]
     init_msg: Option<String>,
 
-    /// Путь к файлу для логирования (если не указан, логирование в файл не производится)
-    #[arg(long)]
+    /// Path to a file for logging communication
+    #[arg(short = 'f', long, help = "Specify a path for logging communication to a file.")]
     log_file: Option<String>,
 
-    /// Интервал heartbeat (в секундах). Если не задано или равно 0, heartbeat не отправляется.
-    #[arg(long, default_value_t = 0)]
+    /// Heartbeat interval in seconds
+    #[arg(short = 'b', long, default_value_t = 0, help = "Set the interval (in seconds) for sending heartbeat messages.")]
     heartbeat: u64,
 
-    /// Текст heartbeat-сообщения (по умолчанию: "HEARTBEAT\n")
-    #[arg(long, default_value = "HEARTBEAT\n")]
+    /// Text for the heartbeat message
+    #[arg(short = 'm', long, default_value = "HEARTBEAT\n", help = "Set the text for the heartbeat message.")]
     hb_msg: String,
+
+    /// Set the baud rate for the virtual serial port
+    #[arg(short = 'r', long, default_value = "9600", help = "Set the baud rate for the virtual serial port.")]
+    baud_rate: String,
+
+    /// Set the parity for the serial connection (none, even, odd)
+    #[arg(short = 'p', long, default_value = "none", value_parser = ["none", "even", "odd"], help = "Set the parity for the virtual serial port")]
+    parity: String,
 }
+
+
+
 
 /// Структура для автоматической очистки созданного ресурса (символической ссылки).
 struct Cleanup {
@@ -64,6 +80,41 @@ impl Drop for Cleanup {
         let _ = remove_file(&self.link_path);
         println!("\n[Cleanup] Removed symbolic link: {}", self.link_path);
     }
+}
+
+fn load_commands_from_file(filename: &str) -> HashMap<String, String> {
+    let mut commands = HashMap::new();
+    let path = Path::new(filename);
+
+    if !path.exists() {
+        eprintln!("[Warning] Command file '{}' not found. Running without predefined commands.", filename);
+        return commands;
+    }
+
+    let file = File::open(filename).expect("Failed to open commands file");
+    let reader = io::BufReader::new(file);
+    let mut lines = reader.lines();
+
+    while let Some(Ok(command)) = lines.next() {
+        if let Some(Ok(response)) = lines.next() {
+            commands.insert(command, response);
+        }
+    }
+
+    commands
+}
+
+fn create_virtual_serial_port(retries: usize) -> OpenptyResult {
+    for attempt in 0..retries {
+        match openpty(None, None) {
+            Ok(pty) => return pty, // Успех — возвращаем PTY
+            Err(e) => {
+                eprintln!("[Error] Failed to create PTY (attempt {}/{}): {}", attempt + 1, retries, e);
+                thread::sleep(Duration::from_millis(500)); // Подождать и попробовать снова
+            }
+        }
+    }
+    panic!("[Error] Unable to create a virtual serial port after {} attempts", retries);
 }
 
 /// Изменяет скорость передачи данных (baud rate)
@@ -139,6 +190,13 @@ fn main() -> io::Result<()> {
         println!("[Info] Starting virtual port with arguments: {:?}", args);
     }
 
+    let commands = load_commands_from_file( "commands.txt");
+
+    if !commands.is_empty() {
+        println!("[Info] Loaded {}'.", commands.len());
+    }
+
+
     let _cleanup = Cleanup::new(args.link.clone());
 
     let running = Arc::new(AtomicBool::new(true));
@@ -151,11 +209,13 @@ fn main() -> io::Result<()> {
             .expect("Error setting Ctrl-C handler");
     }
 
-    let OpenptyResult { master, slave } = openpty(None, None).expect("[Error] Failed to open PTY");
+    let OpenptyResult { master, slave } = create_virtual_serial_port(5);
 
     // Устанавливаем неблокирующий режим для master и stdin
     set_nonblocking(master.as_raw_fd());
     set_nonblocking(0); // stdin
+
+    // Обработка скорости передачи данных
 
     let slave_name = get_slave_name(slave.as_raw_fd());
     println!("[Info] Virtual serial port created: {}", slave_name);
@@ -179,6 +239,23 @@ fn main() -> io::Result<()> {
         }
         tcsetattr(&slave_file, SetArg::TCSANOW, &termios).expect("[Error] tcsetattr failed");
     }
+
+    let baud_rate = match args.baud_rate.parse::<u32>() {
+        Ok(baud) => match speed_to_baud(baud) {
+            Some(baud_rate) => baud_rate,
+            None => {
+                eprintln!("[Error] Unsupported baud rate: {}", args.baud_rate);
+                return Ok(());
+            }
+        },
+        Err(_) => {
+            eprintln!("[Error] Invalid baud rate: {}", args.baud_rate);
+            return Ok(());
+        }
+    };
+
+    set_baud_rate(&slave_file, baud_rate);
+    set_parity(&slave_file, &args.parity);
 
     let master_fd = master.into_raw_fd();
     let master_file = unsafe { File::from_raw_fd(master_fd) };
@@ -229,8 +306,10 @@ fn main() -> io::Result<()> {
     let master_reader = Arc::clone(&master_file);
     let running_reader = Arc::clone(&running);
     let logger_reader = logger.clone();
+    let commands_reader = commands.clone();
     let reader_handle = thread::spawn(move || {
         let mut buf = [0u8; 1024];
+        let mut received_data = String::new();
         while running_reader.load(Ordering::SeqCst) {
             match master_reader.as_ref().read(&mut buf) {
                 Ok(0) => {
@@ -241,9 +320,29 @@ fn main() -> io::Result<()> {
                 }
                 Ok(n) => {
                     let text = String::from_utf8_lossy(&buf[..n]);
+                    received_data.push_str(&text); // Добавляем новые данные в буфер
                     print!("[Received] {}", text);
-                    io::stdout().flush().unwrap(); // Принудительный сброс буфера
+                    io::stdout().flush().unwrap();
                     log_message(&logger_reader, &format!("[Received] {}", text.trim_end()));
+
+                    // Проверяем, есть ли в буфере полная команда (до `\n`)
+                    while let Some(pos) = received_data.find('\n') {
+                        let command = received_data.drain(..=pos).collect::<String>().trim().to_string();
+
+                        if let Some(response) = commands_reader.get(&command) {
+                            println!("[Command] Recognized: '{}', responding with '{}'", command, response);
+                            master_reader
+                                .as_ref()
+                                .write_all(&format!("{}\n", response).as_bytes())
+                                .expect("[Error] Failed to write response");
+                            log_message(&logger_reader, &format!("[Response] {}", response.trim_end()));
+                        }
+                    }
+
+                    master_reader
+                        .as_ref()
+                        .flush()
+                        .expect("[Error] Failed to flush response");
                 }
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                     thread::sleep(Duration::from_millis(10));
@@ -261,6 +360,7 @@ fn main() -> io::Result<()> {
     let master_writer = Arc::clone(&master_file);
     let running_writer = Arc::clone(&running);
     let logger_writer = logger.clone();
+    let commands_writer = commands.clone(); // Копируем команды
     let writer_handle = thread::spawn(move || {
         let stdin = io::stdin();
         let mut stdin = stdin.lock();
@@ -277,21 +377,24 @@ fn main() -> io::Result<()> {
                     // Обработка строк по мере поступления '\n'
                     while let Some(pos) = current_line.find('\n') {
                         let line = current_line.drain(..=pos).collect::<String>();
-                        let trimmed = line.trim();
+                        let trimmed = line.trim().to_string();
 
-                        if trimmed.starts_with('/') {
-                            handle_command(trimmed, &slave_file, &running_writer);
+                        let response = if let Some(resp) = commands_writer.get(&trimmed) {
+                            println!("[Command] Recognized: '{}', responding with '{}'", trimmed, resp);
+                            resp.clone() + "\n" // Ответ из commands
                         } else {
-                            if let Err(e) = master_writer.as_ref().write_all(line.as_bytes()) {
-                                eprintln!("[Writer] Error writing to master: {}", e);
-                                break;
-                            }
-                            log_message(&logger_writer, &format!("[Sent] {}", trimmed));
+                            line // Если команды нет — отправляем введенное
+                        };
+
+                        if let Err(e) = master_writer.as_ref().write_all(response.as_bytes()) {
+                            eprintln!("[Writer] Error writing to master: {}", e);
+                            break;
                         }
+
+                        log_message(&logger_writer, &format!("[Sent] {}", response.trim_end()));
                     }
                 }
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    // Нет данных для чтения, продолжаем цикл
                     thread::sleep(Duration::from_millis(10));
                     continue;
                 }
@@ -305,33 +408,12 @@ fn main() -> io::Result<()> {
     });
 
 
+
     let _ = reader_handle.join();
     let _ = writer_handle.join();
 
     println!("[Info] Exiting main.");
     Ok(())
-}
-
-fn handle_command(cmd: &str, slave_file: &File, running: &AtomicBool) {
-    let parts: Vec<&str> = cmd.split_whitespace().collect();
-    match parts.as_slice() {
-        ["/baud", speed_str] => {
-            if let Ok(speed) = speed_str.parse::<u32>() {
-                if let Some(baud) = speed_to_baud(speed) {
-                    set_baud_rate(slave_file, baud);
-                    println!("[Info] Baud rate changed to {}", speed);
-                } else {
-                    println!("[Error] Unsupported baud rate");
-                }
-            }
-        }
-        ["/parity", parity] => set_parity(slave_file, parity),
-        ["/quit"] => {
-            println!("[Command] Quit command received. Shutting down.");
-            running.store(false, Ordering::SeqCst);
-        }
-        _ => println!("[Command] Unknown command: {}", cmd),
-    }
 }
 
 fn get_slave_name(fd: i32) -> String {

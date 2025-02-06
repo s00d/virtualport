@@ -1,4 +1,3 @@
-```markdown
 # Virtual Serial Port (PTY) Emulator
 
 A Rust-based tool to create virtual serial ports using pseudo-terminals (PTYs) with advanced features like heartbeat messages, logging, and real-time configuration.
@@ -23,8 +22,8 @@ A Rust-based tool to create virtual serial ports using pseudo-terminals (PTYs) w
 ### Steps
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/virtual-serial-pty.git
-   cd virtual-serial-pty
+   git clone https://github.com/s00d/virtualport.git
+   cd virtualport
    ```
 2. Build the project:
    ```bash
@@ -48,7 +47,7 @@ echo "Hello World" > /tmp/my_virtual_port
 ### Command-Line Options
 ```bash
 USAGE:
-    virtual-serial-pty [OPTIONS] --link <LINK>
+    virtualport [OPTIONS] --link <LINK>
 
 OPTIONS:
     -l, --link <LINK>          Symlink path for the virtual port [default: /tmp/my_virtual_port]
@@ -132,6 +131,31 @@ graph LR
 - 📝 **Symlink**: Provides user-friendly access to the slave PTY.
 - 🧵 **Threads**: Non-blocking I/O ensures real-time communication.
 - 💓 **Heartbeat**: Optional periodic messages for monitoring.
+
+### Working with `commands.txt`
+
+The program supports automated command-response handling through a file named `commands.txt`. This file allows you to predefine command-response pairs that the emulator will use to process incoming commands during runtime.
+
+#### How It Works:
+- **File Structure**: The file is expected to contain alternating lines: the first line of each pair is a command, and the second line is its corresponding response. For example, if the emulator receives the command matching one of these entries, it will automatically send back the associated response.
+
+- **Location**: Place `commands.txt` in the same directory from which you launch the emulator.
+
+- **Loading Commands**: Upon startup, the emulator reads `commands.txt` and loads all command-response pairs into memory. If the file is not found, the program will issue a warning and continue running without predefined commands.
+
+- **Usage in Communication**:
+   - **Incoming Data Handling**: In the reader thread, when a complete line (terminated by `\n`) is received from the master PTY, it is checked against the loaded commands. If a match is found, the program responds with the predefined response from the file.
+   - **Interactive Input**: Similarly, if you input a command interactively via the terminal, the program checks the command against the loaded pairs and sends back the associated response if available.
+
+#### Example `commands.txt`:
+```text
+AT
+OK
+AT+CSQ
++CSQ: 23,99
+AT+CREG?
++CREG: 0,1
+```
 
 ## Troubleshooting
 
