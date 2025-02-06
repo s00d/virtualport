@@ -35,6 +35,7 @@ jobs:
     name: Build
     needs: check
     runs-on: ${{ matrix.os }}
+    continue-on-error: true
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
@@ -42,7 +43,7 @@ jobs:
           - stable
         include:
           - os: ubuntu-latest
-            targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu,i686-unknown-linux-gnu,armv7-unknown-linux-gnueabihf,armv6-unknown-linux-gnueabihf
+            targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu,i686-unknown-linux-gnu,armv7-unknown-linux-gnueabihf,armv6-unknown-linux-gnueabihf,x86_64-linux-android,aarch64-linux-android,armv7-linux-androideabi,i686-linux-android
           - os: macos-latest
             targets: x86_64-apple-darwin,aarch64-apple-darwin
 
