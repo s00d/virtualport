@@ -75,13 +75,19 @@ jobs:
           sudo apt-get install -y libc6-dev-armhf-cross
 
 
-      - uses: nttld/setup-ndk@v1
-        id: setup-ndk
-        with:
-          local-cache: true
-          ndk-version: r25e
-          add-to-path: true
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk
 
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v2
+
+          
       - name: Build
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
@@ -93,8 +99,15 @@ jobs:
               echo "Error: Target $TARGET not installed"
               exit 1
             fi
-            cargo build --release --bin virtualport --target $TARGET
-            mv target/$TARGET/release/virtualport target/$TARGET/release/virtualport-$TARGET
+            if [[ "$TARGET" == *"android"* ]]; then
+              # Build for Android targets
+              cargo ndk --target $TARGET build --release --bin virtualport
+              mv target/$TARGET/release/virtualport target/$TARGET/release/virtualport-$TARGET
+            else
+              # Build for non-Android targets
+              cargo build --release --bin virtualport --target $TARGET
+              mv target/$TARGET/release/virtualport target/$TARGET/release/virtualport-$TARGET
+            fi
           done
 
       - name: Upload artifact
