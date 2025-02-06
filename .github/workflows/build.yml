@@ -101,7 +101,7 @@ jobs:
           done
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: gar-${{ matrix.os }}
           path: target/*/*/gar-*
