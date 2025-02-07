@@ -55,8 +55,11 @@ fn main() -> io::Result<()> {
     let slave_name = get_slave_name(slave.as_raw_fd());
     println!("[Info] Virtual serial port created: {}", slave_name);
     let _ = remove_file(&args.link);
-    symlink(&slave_name, &args.link).expect("[Error] Failed to create symbolic link");
-    println!("[Info] Custom virtual port available at: {}", args.link);
+    if let Err(e) = symlink(&slave_name, &args.link) {
+        eprintln!("[Error] Failed to create symbolic link: {}", e);
+    } else {
+        println!("[Info] Symbolic link created: {} <-> {}", &args.link, slave_name);
+    }
 
     // Настройка slave-устройства (отключение эха, если требуется)
     let slave_fd = slave.into_raw_fd();
