@@ -2,6 +2,10 @@
 name = "virtualport"
 version = "0.1.3"
 edition = "2021"
+description = "A program to create a virtual serial port (PTY) with extended functionality."
+authors = ["s00d <Virus191288@gmail.com>"]
+license = "MIT"
+repository = "https://github.com/s00d/virtualport"
 
 [dependencies]
 clap = { version = "4.2", features = ["derive", "env"] }
