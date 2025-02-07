@@ -1,3 +1,8 @@
+[![Crates.io](https://img.shields.io/crates/v/virtualport?style=for-the-badge)](https://crates.io/crates/virtualport)
+[![GitHub issues](https://img.shields.io/github/issues/s00d/virtualport?style=for-the-badge)](https://github.com/s00d/virtualport/issues)
+[![GitHub stars](https://img.shields.io/github/stars/s00d/virtualport?style=for-the-badge)](https://github.com/s00d/virtualport/stargazers)
+[![Donate](https://img.shields.io/badge/Donate-Donationalerts-ff4081?style=for-the-badge)](https://www.donationalerts.com/r/s00d88)
+
 # Virtual Serial Port (PTY) Emulator
 
 A Rust-based tool to create virtual serial ports using pseudo-terminals (PTYs) with advanced features like heartbeat messages, logging, and real-time configuration.
